@@ -207,6 +207,165 @@ function calculateParameters(layers) {
     };
 }
 
+function initializeClusters() {
+    // יצירת 3 אשכולות עם נקודות רנדומליות
+    const clusters = [
+        { center: { x: 150, y: 150 }, color: '#9F7AEA', points: [] },
+        { center: { x: 300, y: 150 }, color: '#4FD1C5', points: [] },
+        { center: { x: 225, y: 300 }, color: '#F6AD55', points: [] }
+    ];
+
+    // יצירת נקודות רנדומליות סביב כל מרכז
+    clusters.forEach(cluster => {
+        for (let i = 0; i < 20; i++) {
+            cluster.points.push({
+                x: cluster.center.x + (Math.random() - 0.5) * 100,
+                y: cluster.center.y + (Math.random() - 0.5) * 100,
+                currentCluster: cluster
+            });
+        }
+    });
+
+    return clusters;
+}
+
+function updateClusterCenters() {
+    demonstrationData.clusters.forEach(cluster => {
+        if (cluster.points.length === 0) return;
+
+        // חישוב ממוצע הנקודות
+        const newCenter = cluster.points.reduce((acc, point) => ({
+            x: acc.x + point.x,
+            y: acc.y + point.y
+        }), { x: 0, y: 0 });
+
+        newCenter.x /= cluster.points.length;
+        newCenter.y /= cluster.points.length;
+
+        // עדכון הדרגתי של המרכז
+        const progress = Math.min(demonstrationStep / 50, 1);
+        cluster.center.x += (newCenter.x - cluster.center.x) * progress * 0.1;
+        cluster.center.y += (newCenter.y - cluster.center.y) * progress * 0.1;
+    });
+}
+
+function assignPointsToClusters() {
+    // סידור מחדש של כל הנקודות
+    const allPoints = demonstrationData.clusters.flatMap(c => c.points);
+    
+    // ניקוי הנקודות מכל האשכולות
+    demonstrationData.clusters.forEach(cluster => {
+        cluster.points = [];
+    });
+
+    // שיוך מחדש של כל נקודה לאשכול הקרוב ביותר
+    allPoints.forEach(point => {
+        let minDist = Infinity;
+        let closestCluster = null;
+
+        demonstrationData.clusters.forEach(cluster => {
+            const dist = calculateDistance(point, cluster.center);
+            if (dist < minDist) {
+                minDist = dist;
+                closestCluster = cluster;
+            }
+        });
+
+        closestCluster.points.push(point);
+        point.currentCluster = closestCluster;
+    });
+}
+
+function calculateDistance(point1, point2) {
+    const dx = point1.x - point2.x;
+    const dy = point1.y - point2.y;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+function drawClusters(ctx) {
+    // ציור הנקודות
+    demonstrationData.clusters.forEach(cluster => {
+        // ציור הנקודות
+        cluster.points.forEach(point => {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+            ctx.fillStyle = cluster.color;
+            ctx.fill();
+        });
+
+        // ציור מרכז האשכול
+        ctx.beginPath();
+        ctx.arc(cluster.center.x, cluster.center.y, 10, 0, Math.PI * 2);
+        ctx.strokeStyle = cluster.color;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // ציור קווים מהמרכז לנקודות
+        if (demonstrationStep % 10 < 5) { // הבהוב הקווים
+            cluster.points.forEach(point => {
+                ctx.beginPath();
+                ctx.moveTo(cluster.center.x, cluster.center.y);
+                ctx.lineTo(point.x, point.y);
+                ctx.strokeStyle = `${cluster.color}40`; // צבע שקוף חלקית
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            });
+        }
+    });
+}
+
+function updateClusteringLoss() {
+    if (!demonstrationData.lossHistory) {
+        demonstrationData.lossHistory = [];
+    }
+
+    // חישוב ה-Loss הנוכחי (ממוצע המרחקים מהמרכזים)
+    let totalDistance = 0;
+    let totalPoints = 0;
+
+    demonstrationData.clusters.forEach(cluster => {
+        cluster.points.forEach(point => {
+            totalDistance += calculateDistance(point, cluster.center);
+            totalPoints++;
+        });
+    });
+
+    const currentLoss = totalDistance / (totalPoints || 1);
+    const normalizedLoss = Math.min(1, currentLoss / 100); // נרמול ל-0-1
+    demonstrationData.lossHistory.push(normalizedLoss);
+
+    // ציור גרף ה-Loss
+    const lossCanvas = document.getElementById('lossCanvas');
+    const ctx = lossCanvas.getContext('2d');
+    
+    // נקה את הקנבס
+    ctx.clearRect(0, 0, lossCanvas.width, lossCanvas.height);
+    
+    // ציור הגרף
+    ctx.beginPath();
+    ctx.strokeStyle = '#6B46C1';
+    ctx.lineWidth = 2;
+
+    demonstrationData.lossHistory.forEach((loss, i) => {
+        const x = (i / 100) * lossCanvas.width;
+        const y = lossCanvas.height - (loss * lossCanvas.height);
+        
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    });
+
+    ctx.stroke();
+
+    // הוספת תוויות
+    ctx.fillStyle = '#666';
+    ctx.font = '12px Arial';
+    ctx.fillText('Loss', 10, 20);
+    ctx.fillText('Epochs', lossCanvas.width - 50, lossCanvas.height - 10);
+}
+
 function updateStats() {
     const layers = getLayers();
     const params = calculateParameters(layers);
@@ -406,6 +565,35 @@ function initializeTabs() {
             </div>
         `;
     });
+}
+
+// עדכון פונקציית initialize
+function initialize() {
+    if (initialized) return;
+    
+    initializeTabs();
+    initializeCharts();
+    updateVisualization();
+    initializeDemoCanvas();  // הוספנו את זה
+    
+    // Set up event listeners
+    document.getElementById('inputLayer').addEventListener('change', updateVisualization);
+    document.getElementById('outputLayer').addEventListener('change', updateVisualization);
+    document.addEventListener('change', function(e) {
+        if (e.target.classList.contains('hidden-layer')) {
+            updateVisualization();
+        }
+    });
+    
+    // הוספת האזנה לכפתורי ההדגמה
+    document.querySelectorAll('.demo-button').forEach(button => {
+        button.addEventListener('click', function() {
+            const demoType = this.dataset.demo;
+            demonstrateNetworkBehavior(demoType);
+        });
+    });
+    
+    initialized = true;
 }
 
 function renderConfusionMatrix(data) {
@@ -842,68 +1030,589 @@ function simulateRegression() {
 }
 
 function simulateClustering() {
-    const { points } = demonstrationData;
-    
-    // הדמיית תהליך הקלסטרינג
-    if (demonstrationStep === 0) {
-        // אתחול צנטרואידים
-        demonstrationData.centroids = initializeCentroids(points, 3);
+    const canvas = document.getElementById('demoCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // יצירת נקודות רנדומליות בשלושה אשכולות
+    if (!demonstrationData.clusters) {
+        demonstrationData.clusters = [
+            { center: { x: canvas.width * 0.2, y: canvas.height * 0.3 }, points: [] },
+            { center: { x: canvas.width * 0.7, y: canvas.height * 0.7 }, points: [] },
+            { center: { x: canvas.width * 0.8, y: canvas.height * 0.2 }, points: [] }
+        ];
+
+        // יצירת נקודות סביב כל מרכז
+        demonstrationData.clusters.forEach(cluster => {
+            for (let i = 0; i < 30; i++) {
+                cluster.points.push({
+                    x: cluster.center.x + (Math.random() - 0.5) * 100,
+                    y: cluster.center.y + (Math.random() - 0.5) * 100
+                });
+            }
+        });
     }
-    
-    // עדכון שיוך נקודות לקלאסטרים
-    demonstrationData.clusters = assignPointsToClusters(points, demonstrationData.centroids);
-    
-    // עדכון מיקום צנטרואידים
-    if (demonstrationStep % 5 === 0) {
-        demonstrationData.centroids = updateCentroids(demonstrationData.clusters);
-    }
-    
-    // עדכון הויזואליזציה
-    drawClusteringDemo();
+
+    // הזזת מרכזי האשכולות בהדרגה
+    demonstrationData.clusters.forEach((cluster, i) => {
+        // עדכון מיקום המרכז
+        const newCenter = {
+            x: 0,
+            y: 0
+        };
+        cluster.points.forEach(point => {
+            newCenter.x += point.x;
+            newCenter.y += point.y;
+        });
+        newCenter.x /= cluster.points.length;
+        newCenter.y /= cluster.points.length;
+        
+        // הזזה הדרגתית של המרכז
+        cluster.center.x += (newCenter.x - cluster.center.x) * 0.1;
+        cluster.center.y += (newCenter.y - cluster.center.y) * 0.1;
+
+        // ציור הנקודות
+        cluster.points.forEach(point => {
+            ctx.beginPath();
+            ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+            ctx.fillStyle = ['#9F7AEA', '#4FD1C5', '#F6AD55'][i];
+            ctx.fill();
+        });
+
+        // ציור מרכז האשכול
+        ctx.beginPath();
+        ctx.arc(cluster.center.x, cluster.center.y, 10, 0, Math.PI * 2);
+        ctx.strokeStyle = ['#6B46C1', '#319795', '#DD6B20'][i];
+        ctx.lineWidth = 3;
+        ctx.stroke();
+    });
 }
 
 function simulateOverfitting() {
-    const { trainingData, testData } = demonstrationData;
-    
-    // הגדלת מורכבות המודל עם הזמן
-    demonstrationData.complexity = 1 + (demonstrationStep / 20);
-    
-    // חישוב Loss על סט האימון והטסט
-    const trainLoss = calculateLoss(trainingData, demonstrationData.complexity, 'train');
-    const testLoss = calculateLoss(testData, demonstrationData.complexity, 'test');
-    
-    demonstrationData.trainLoss.push(trainLoss);
-    demonstrationData.testLoss.push(testLoss);
-    
-    // עדכון הויזואליזציה
-    drawOverfittingDemo();
+    const canvas = document.getElementById('demoCanvas');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // יצירת נקודות אימון אם לא קיימות
+    if (!demonstrationData.trainPoints) {
+        demonstrationData.trainPoints = Array.from({length: 20}, (_, i) => ({
+            x: i * (canvas.width / 20),
+            y: (canvas.height / 2) + Math.sin(i / 3) * 50 + (Math.random() - 0.5) * 30
+        }));
+    }
+
+    // ציור נקודות האימון
+    demonstrationData.trainPoints.forEach(point => {
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#9F7AEA';
+        ctx.fill();
+    });
+
+    // חישוב מורכבות פעם אחת
+    const complexity = Math.min(demonstrationStep / 50, 1) * 10;
+
+    // ציור קו ההתאמה - מורכבות עולה עם הזמן
+    ctx.beginPath();
+    for (let x = 0; x < canvas.width; x++) {
+        let y = canvas.height / 2;
+        for (let i = 1; i <= complexity; i++) {
+            y += Math.sin(x * i / 50) * (20 / i);
+        }
+        if (x === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    }
+    ctx.strokeStyle = '#6B46C1';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // עדכון גרף ה-Loss
+    updateLossGraph(complexity);  // משתמשים בפונקציה המקורית
 }
+
 
 // פונקציות עזר
 
+function drawRegressionPoints(ctx, points) {
+    points.forEach(point => {
+        ctx.beginPath();
+        ctx.arc(
+            ctx.canvas.width/2 + point.x * 50,  // נירמול לגודל הקנבס
+            ctx.canvas.height/2 - point.y * 50,  // הפוך את ציר ה-y
+            4,
+            0,
+            2 * Math.PI
+        );
+        ctx.fillStyle = '#9F7AEA';
+        ctx.fill();
+    });
+}
+
+function drawRegressionLine(ctx, points, progress) {
+    ctx.beginPath();
+    ctx.strokeStyle = '#6B46C1';
+    ctx.lineWidth = 2;
+    
+    // יצירת קו רציף של חיזויים
+    const xPoints = Array.from({length: 100}, (_, i) => -5 + i * 0.1);
+    
+    xPoints.forEach((x, i) => {
+        const predictedY = predictRegressionValue(x, progress);
+        const canvasX = ctx.canvas.width/2 + x * 50;
+        const canvasY = ctx.canvas.height/2 - predictedY * 50;
+        
+        if (i === 0) {
+            ctx.moveTo(canvasX, canvasY);
+        } else {
+            ctx.lineTo(canvasX, canvasY);
+        }
+    });
+    
+    ctx.stroke();
+}
+
+function calculateRegressionLoss(progress) {
+    const trueFunction = x => Math.sin(x);
+    const currentPrediction = x => trueFunction(x) + (1 - progress) * (Math.random() - 0.5);
+    
+    // חישוב MSE על מספר נקודות
+    let totalError = 0;
+    const numPoints = 20;
+    
+    for (let i = 0; i < numPoints; i++) {
+        const x = -5 + i * 0.5;
+        const trueY = trueFunction(x);
+        const predY = currentPrediction(x);
+        totalError += Math.pow(trueY - predY, 2);
+    }
+    
+    return totalError / numPoints;
+}
+
 function createDigitPixels(digit) {
-    // יצירת מטריצת פיקסלים פשוטה לייצוג ספרה
-    const pixelArrays = {
-        '0': [
+    const digit_patterns = {
+        0: [[1,1,1], [1,0,1], [1,0,1], [1,0,1], [1,1,1]],
+        1: [[0,1,0], [0,1,0], [0,1,0], [0,1,0], [0,1,0]],
+        2: [[1,1,1], [0,0,1], [1,1,1], [1,0,0], [1,1,1]],
+        3: [[1,1,1], [0,0,1], [1,1,1], [0,0,1], [1,1,1]],
+        4: [[1,0,1], [1,0,1], [1,1,1], [0,0,1], [0,0,1]],
+        5: [[1,1,1], [1,0,0], [1,1,1], [0,0,1], [1,1,1]],
+        6: [[1,1,1], [1,0,0], [1,1,1], [1,0,1], [1,1,1]],
+        7: [[1,1,1], [0,0,1], [0,0,1], [0,0,1], [0,0,1]],
+        8: [[1,1,1], [1,0,1], [1,1,1], [1,0,1], [1,1,1]],
+        9: [[1,1,1], [1,0,1], [1,1,1], [0,0,1], [1,1,1]]
+    };
+    return digit_patterns[digit];
+}
+
+function addTypeSpecificLabels(ctx, type, padding, height) {
+    ctx.fillStyle = '#666';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'right';
+    
+    switch(type) {
+        case 'classification':
+            ctx.fillText('Classification Accuracy', padding - 5, padding - 10);
+            break;
+        case 'regression':
+            ctx.fillText('Mean Squared Error', padding - 5, padding - 10);
+            break;
+        case 'clustering':
+            ctx.fillText('Inertia', padding - 5, padding - 10);
+            break;
+    }
+}
+
+function drawAxes(ctx, padding, width, height) {
+    ctx.beginPath();
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1;
+    
+    // Y axis
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, height + padding);
+    
+    // X axis
+    ctx.moveTo(padding, height + padding);
+    ctx.lineTo(width + padding, height + padding);
+    
+    ctx.stroke();
+}
+
+function drawDigit(ctx, pixels, x, y, size = 20) {
+    pixels.forEach((row, i) => {
+        row.forEach((val, j) => {
+            ctx.fillStyle = val ? '#6B46C1' : '#EDF2F7';
+            ctx.fillRect(x + j * size, y + i * size, size, size);
+        });
+    });
+}
+
+function simulateClassification() {
+    // יצירת דוגמה של ספרה אם לא קיימת
+    if (!demonstrationData.currentDigit) {
+        demonstrationData.currentDigit = createDigitExample();
+        demonstrationData.predictions = new Array(10).fill(0);
+    }
+
+    const demoCanvas = document.getElementById('demoCanvas');
+    const ctx = demoCanvas.getContext('2d');
+    
+    // ציור הספרה
+    drawDigit(ctx, demonstrationData.currentDigit);
+    
+    // עדכון הסתברויות
+    const targetDigit = demonstrationData.currentDigit.label;
+    const progress = Math.min(demonstrationStep / 20, 1);
+    
+    demonstrationData.predictions = demonstrationData.predictions.map((_, i) => {
+        if (i === targetDigit) {
+            return 0.1 + 0.8 * progress;
+        } else {
+            return 0.1 * (1 - progress) + 0.05 * Math.random();
+        }
+    });
+
+    // ציור ההסתברויות
+    drawPredictionBars(ctx, demonstrationData.predictions);
+
+    // עדכון גרף Loss
+    const currentLoss = 1 - demonstrationData.predictions[targetDigit];
+    if (!demonstrationData.lossHistory) {
+        demonstrationData.lossHistory = [];
+    }
+    demonstrationData.lossHistory.push(currentLoss);
+    
+    const lossCanvas = document.getElementById('lossCanvas');
+    drawLossHistory(lossCanvas.getContext('2d'), demonstrationData.lossHistory);
+}
+
+function createDigitExample() {
+    // יצירת מטריצת פיקסלים של ספרה
+    return {
+        pixels: [
             [0,1,1,0],
             [1,0,0,1],
             [1,0,0,1],
             [0,1,1,0]
         ],
-        '1': [
-            [0,1,0,0],
-            [0,1,0,0],
-            [0,1,0,0],
-            [0,1,0,0]
-        ],
-        '2': [
-            [1,1,1,0],
-            [0,0,1,0],
-            [0,1,0,0],
-            [1,1,1,1]
-        ]
+        label: 2  // לדוגמה: ספרה 2
     };
-    return pixelArrays[digit];
+}
+
+function drawDigit(ctx, digit) {
+    const pixelSize = 20;
+    ctx.clearRect(0, 0, 200, 200);
+    
+    digit.pixels.forEach((row, i) => {
+        row.forEach((value, j) => {
+            ctx.fillStyle = value ? '#6B46C1' : '#EDF2F7';
+            ctx.fillRect(j * pixelSize, i * pixelSize, pixelSize, pixelSize);
+        });
+    });
+}
+
+function drawPredictionBars(ctx, predictions) {
+    const barHeight = 20;
+    const maxWidth = 150;
+    
+    ctx.save();
+    ctx.translate(220, 0);  // הזזה ימינה לציור ההסתברויות
+    
+    predictions.forEach((prob, i) => {
+        const y = i * (barHeight + 5);
+        
+        // ציור הרקע
+        ctx.fillStyle = '#EDF2F7';
+        ctx.fillRect(0, y, maxWidth, barHeight);
+        
+        // ציור ההסתברות
+        ctx.fillStyle = '#6B46C1';
+        ctx.fillRect(0, y, prob * maxWidth, barHeight);
+        
+        // הוספת תווית
+        ctx.fillStyle = '#1A202C';
+        ctx.fillText(`${i}: ${(prob * 100).toFixed(1)}%`, maxWidth + 10, y + barHeight/2);
+    });
+    
+    ctx.restore();
+}
+
+function simulateRegression() {
+    if (!demonstrationData.regressionPoints) {
+        demonstrationData.regressionPoints = generateRegressionData();
+    }
+
+    const demoCanvas = document.getElementById('demoCanvas');
+    const ctx = demoCanvas.getContext('2d');
+    
+    // ציור נקודות האימון
+    drawRegressionPoints(ctx, demonstrationData.regressionPoints);
+    
+    // ציור קו החיזוי
+    const progress = Math.min(demonstrationStep / 50, 1);
+    drawRegressionLine(ctx, demonstrationData.regressionPoints, progress);
+
+    // עדכון Loss
+    const currentLoss = calculateRegressionLoss(progress);
+    if (!demonstrationData.lossHistory) {
+        demonstrationData.lossHistory = [];
+    }
+    demonstrationData.lossHistory.push(currentLoss);
+    
+    const lossCanvas = document.getElementById('lossCanvas');
+    drawLossHistory(lossCanvas.getContext('2d'), demonstrationData.lossHistory);
+}
+
+function generateRegressionData() {
+    return Array.from({length: 20}, (_, i) => ({
+        x: (i - 10) / 5,
+        y: Math.sin((i - 10) / 3) + 0.2 * (Math.random() - 0.5)
+    }));
+}
+
+function updateLossGraphForType(type) {
+    const lossCanvas = document.getElementById('lossCanvas');
+    const ctx = lossCanvas.getContext('2d');
+    
+    if (!demonstrationData.lossHistory) {
+        demonstrationData.lossHistory = [];
+    }
+    
+    let currentLoss;
+    switch(type) {
+        case 'classification':
+            // Loss יורד מהר בהתחלה ואז מתייצב
+            currentLoss = 1 / (1 + demonstrationStep * 0.1) + 0.1 * Math.random();
+            break;
+            
+        case 'regression':
+            // Loss יורד בהדרגה עם תנודות קטנות
+            currentLoss = 0.5 / (1 + demonstrationStep * 0.05) + 
+                         0.05 * Math.sin(demonstrationStep * 0.1) +
+                         0.05 * Math.random();
+            break;
+            
+        case 'clustering':
+            // Loss יורד בקפיצות כשהאשכולות מתייצבים
+            currentLoss = 0.8 * Math.exp(-demonstrationStep * 0.05) +
+                         0.2 * Math.random();
+            break;
+            
+        case 'overfitting':
+            // קריאה לפונקציה המקורית עבור overfitting
+            const complexity = Math.min(demonstrationStep / 50, 1) * 10;
+            updateLossGraph(complexity);
+            return;
+    }
+    
+    demonstrationData.lossHistory.push(currentLoss);
+    
+    // ציור הגרף הבסיסי
+    drawBasicLossGraph(demonstrationData.lossHistory);
+}
+
+function drawBasicLossGraph(history) {
+    const lossCanvas = document.getElementById('lossCanvas');
+    const ctx = lossCanvas.getContext('2d');
+    
+    ctx.clearRect(0, 0, lossCanvas.width, lossCanvas.height);
+    
+    const padding = 40;
+    const width = lossCanvas.width - 2 * padding;
+    const height = lossCanvas.height - 2 * padding;
+    
+    // ציור צירים
+    ctx.beginPath();
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1;
+    
+    // ציר Y
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, lossCanvas.height - padding);
+    
+    // ציר X
+    ctx.moveTo(padding, lossCanvas.height - padding);
+    ctx.lineTo(lossCanvas.width - padding, lossCanvas.height - padding);
+    ctx.stroke();
+    
+    // תוויות
+    ctx.fillStyle = '#666';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'right';
+    
+    ctx.fillText('Loss', padding - 5, padding - 10);
+    ctx.fillText('1.0', padding - 5, padding);
+    ctx.fillText('0.5', padding - 5, padding + height/2);
+    ctx.fillText('0.0', padding - 5, padding + height);
+    
+    ctx.textAlign = 'center';
+    ctx.fillText('Epochs', lossCanvas.width/2, lossCanvas.height - 5);
+    
+    // ציור הגרף
+    ctx.beginPath();
+    ctx.strokeStyle = '#6B46C1';
+    ctx.lineWidth = 2;
+    
+    history.forEach((loss, i) => {
+        const x = padding + (i / (history.length - 1)) * width;
+        const y = padding + (1 - loss) * height;
+        
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    });
+    ctx.stroke();
+}
+
+
+
+
+function simulateClustering() {
+    // אתחול הדאטה אם לא קיים
+    if (!demonstrationData.clusters) {
+        demonstrationData.clusters = initializeClusters();
+    }
+
+    const demoCanvas = document.getElementById('demoCanvas');
+    const ctx = demoCanvas.getContext('2d');
+    ctx.clearRect(0, 0, demoCanvas.width, demoCanvas.height);
+
+    // עדכון מיקומי המרכזים
+    updateClusterCenters();
+
+    // שיוך נקודות מחדש לאשכולות
+    assignPointsToClusters();
+
+    // ציור האשכולות
+    drawClusters(ctx);
+
+    // עדכון גרף ה-Loss
+    updateClusteringLoss();
+}
+
+
+function updateLossGraph(complexity) {
+    const lossCanvas = document.getElementById('lossCanvas');
+    const ctx = lossCanvas.getContext('2d');
+    
+    // נקה את הקנבס
+    ctx.clearRect(0, 0, lossCanvas.width, lossCanvas.height);
+    
+    // חישוב ערכי Loss
+    const trainLoss = 1 / (1 + complexity);
+    const testLoss = complexity > 5 ? 
+        Math.pow(complexity - 5, 2) / 20 : 
+        1 / (1 + complexity);
+    
+    // הוספת ערכים להיסטוריה
+    if (!demonstrationData.lossHistory) {
+        demonstrationData.lossHistory = {
+            train: [],
+            test: []
+        };
+    }
+    
+    demonstrationData.lossHistory.train.push(trainLoss);
+    demonstrationData.lossHistory.test.push(testLoss);
+    
+    // הגדרת סגנון ציור
+    const padding = 40;
+    const width = lossCanvas.width - 2 * padding;
+    const height = lossCanvas.height - 2 * padding;
+    
+    // ציור צירים
+    ctx.beginPath();
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1;
+    
+    // ציר Y
+    ctx.moveTo(padding, padding);
+    ctx.lineTo(padding, lossCanvas.height - padding);
+    
+    // ציר X
+    ctx.moveTo(padding, lossCanvas.height - padding);
+    ctx.lineTo(lossCanvas.width - padding, lossCanvas.height - padding);
+    ctx.stroke();
+    
+    // הוספת תוויות
+    ctx.fillStyle = '#666';
+    ctx.font = '12px Arial';
+    ctx.textAlign = 'right';
+    
+    // תוויות ציר Y
+    ctx.fillText('Loss', padding - 5, padding - 10);
+    ctx.fillText('1.0', padding - 5, padding);
+    ctx.fillText('0.5', padding - 5, padding + height/2);
+    ctx.fillText('0.0', padding - 5, padding + height);
+    
+    // תוויות ציר X
+    ctx.textAlign = 'center';
+    ctx.fillText('Model Complexity', lossCanvas.width/2, lossCanvas.height - 5);
+    
+    // ציור הגרפים
+    const history = demonstrationData.lossHistory;
+    const pointsToPixels = (points, color) => {
+        ctx.beginPath();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        
+        points.forEach((loss, i) => {
+            const x = padding + (i / (points.length - 1)) * width;
+            const y = padding + (1 - loss) * height;
+            
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        });
+        ctx.stroke();
+    };
+    
+    // ציור גרף אימון
+    pointsToPixels(history.train, '#6B46C1');
+    
+    // ציור גרף בדיקה
+    pointsToPixels(history.test, '#DD6B20');
+    
+    // הוספת מקרא
+    const legendY = padding + 20;
+    ctx.textAlign = 'left';
+    
+    // מקרא לגרף אימון
+    ctx.fillStyle = '#6B46C1';
+    ctx.fillRect(padding + width - 100, legendY, 20, 2);
+    ctx.fillStyle = '#666';
+    ctx.fillText('Training Loss', padding + width - 70, legendY + 5);
+    
+    // מקרא לגרף בדיקה
+    ctx.fillStyle = '#DD6B20';
+    ctx.fillRect(padding + width - 100, legendY + 20, 20, 2);
+    ctx.fillStyle = '#666';
+    ctx.fillText('Test Loss', padding + width - 70, legendY + 25);
+    
+    // הוספת הערה על Overfitting
+    if (complexity > 5) {
+        const overfit = Math.min((complexity - 5) / 5, 1);
+        ctx.globalAlpha = overfit;
+        ctx.fillStyle = '#E53E3E';
+        ctx.textAlign = 'center';
+        ctx.fillText('Overfitting!', lossCanvas.width/2, padding + 50);
+        ctx.globalAlpha = 1;
+    }
+    
+    // הוספת המלצה למורכבות אופטימלית
+    if (complexity >= 5 && complexity <= 6) {
+        ctx.fillStyle = '#38A169';
+        ctx.textAlign = 'center';
+        ctx.fillText('Sweet Spot', lossCanvas.width/2, padding + 70);
+    }
 }
 
 function predictRegressionValue(x, progress) {
@@ -969,6 +1678,40 @@ function drawClassificationDemo() {
         ctx.fillStyle = '#1A202C';
         ctx.fillText(`${i}: ${(prob * 100).toFixed(1)}%`, 360, i * 30 + 15);
     });
+}
+
+function drawLossHistory(history, type) {
+    const lossCanvas = document.getElementById('lossCanvas');
+    const ctx = lossCanvas.getContext('2d');
+    
+    ctx.clearRect(0, 0, lossCanvas.width, lossCanvas.height);
+    
+    const padding = 40;
+    const width = lossCanvas.width - 2 * padding;
+    const height = lossCanvas.height - 2 * padding;
+    
+    // ציור צירים וכותרות בסיסיות
+    drawAxes(ctx, padding, width, height);
+    
+    // ציור הגרף
+    ctx.beginPath();
+    ctx.strokeStyle = '#6B46C1';
+    ctx.lineWidth = 2;
+    
+    history.forEach((loss, i) => {
+        const x = padding + (i / (history.length - 1)) * width;
+        const y = padding + (1 - loss) * height;
+        
+        if (i === 0) {
+            ctx.moveTo(x, y);
+        } else {
+            ctx.lineTo(x, y);
+        }
+    });
+    ctx.stroke();
+    
+    // הוספת תוויות ספציפיות לכל סוג
+    addTypeSpecificLabels(ctx, type, padding, height);
 }
 
 function drawRegressionDemo() {
@@ -1145,6 +1888,24 @@ const DEMO_EXPLANATIONS = {
         • שים לב לנקודה בה המודל מתחיל "לזכור" במקום ללמוד`
     }
 };
+
+function initializeDemoCanvas() {
+    const demoCanvas = document.getElementById('demoCanvas');
+    if (!demoCanvas) {
+        console.error('Demo canvas not found');
+        return;
+    }
+    
+    // התאמת גודל הקנבס לגודל המכיל
+    const container = demoCanvas.parentElement;
+    demoCanvas.width = container.offsetWidth;
+    demoCanvas.height = 400; // או גובה אחר מתאים
+    
+    // ציור רקע ראשוני
+    const ctx = demoCanvas.getContext('2d');
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, demoCanvas.width, demoCanvas.height);
+}
 
 function updateDemonstrationUI(type) {
     const demoTitle = document.getElementById('demoTitle');
