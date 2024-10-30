@@ -13,6 +13,15 @@ body {
     margin: 0 auto;
     padding: 20px;
     background: var(--light);
+    direction: rtl;
+    text-align: right;
+}
+
+.header h1, 
+.demo-title,
+.info-title,
+.tab {
+    text-align: center;
 }
 
 .header {
@@ -340,6 +349,7 @@ pre {
 
 .demo-controls {
     display: flex;
+    justify-content: center;
     gap: 10px;
     margin-bottom: 20px;
     flex-wrap: wrap;
